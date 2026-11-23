@@ -68,8 +68,20 @@ void main() {
       );
 
       final result = UntangleEngine.checkAndReleaseCascade(lvl);
-      expect(result.freedRings.isNotEmpty, isTrue);
-      expect(result.puzzleComplete, isTrue);
+      expect(result.freedRings.length, 1);
+      expect(result.freedRings.first.id, r2.id);
+      expect(result.puzzleComplete, isFalse);
+
+      // Align r1 gap with joint as well
+      final r1 = lvl.rings[0];
+      double angle1 = math.atan2(joint.position.dy - r1.center.dy, joint.position.dx - r1.center.dx);
+      r1.currentAngle = GeometryMath.normalizeAngle(
+        angle1 - r1.gapStartAngle - (r1.gapSweep / 2.0),
+      );
+      final result2 = UntangleEngine.checkAndReleaseCascade(lvl);
+      expect(result2.freedRings.length, 1);
+      expect(result2.freedRings.first.id, r1.id);
+      expect(result2.puzzleComplete, isTrue);
     });
   });
 

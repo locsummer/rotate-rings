@@ -49,22 +49,12 @@ class JointModel {
   bool isHoldingRing(String ringId, {bool isOtherRingFreed = false}) {
     if (isReleased) return false;
 
-    if (type == JointType.pin) {
-      if (ringIdA == ringId) return !detachedFromA;
-      return false;
+    if (ringId == ringIdA) {
+      return !detachedFromA;
     }
 
-    // Sleeve between A and B
-    if (ringIdA == ringId) {
-      if (detachedFromA) return false;
-      if (isOtherRingFreed || detachedFromB) return false;
-      return true;
-    }
-
-    if (ringIdB == ringId) {
-      if (detachedFromB) return false;
-      if (isOtherRingFreed || detachedFromA) return false;
-      return true;
+    if (ringId == ringIdB) {
+      return !detachedFromB;
     }
 
     return false;
@@ -72,8 +62,10 @@ class JointModel {
 
   /// Updates isReleased based on detachment
   void updateReleaseState() {
-    if (detachedFromA || detachedFromB) {
-      isReleased = true;
+    if (ringIdB == null) {
+      isReleased = detachedFromA;
+    } else {
+      isReleased = detachedFromA && detachedFromB;
     }
   }
 

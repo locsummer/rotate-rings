@@ -47,3 +47,4 @@ app.*.map.json
 *.apk
 *.aab
 *.dex
+*.png

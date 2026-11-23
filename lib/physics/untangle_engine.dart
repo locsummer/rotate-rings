@@ -41,20 +41,10 @@ class UntangleEngine {
             ? level.rings.firstWhere((r) => r.id == joint.ringIdB)
             : null;
 
-        // If either ring is already freed, this joint can no longer anchor anything
-        if (ringA.isFreed || (ringB != null && ringB.isFreed)) {
-          joint.detachedFromA = true;
-          joint.detachedFromB = true;
-          joint.isReleased = true;
-          newlyFreedJoints.add(joint);
-          stateChanged = true;
-          continue;
-        }
-
         // Check if Ring A's gap is aligned with this joint
-        if (!joint.detachedFromA) {
+        if (!joint.detachedFromA && !ringA.isFreed) {
           double angleA = math.atan2(joint.position.dy - ringA.center.dy, joint.position.dx - ringA.center.dx);
-          if (GeometryMath.isJointInGap(ringA, angleA)) {
+          if (GeometryMath.isJointInGap(ringA, angleA, tolerance: 0.08)) {
             joint.detachedFromA = true;
             joint.updateReleaseState();
             stateChanged = true;
@@ -62,9 +52,9 @@ class UntangleEngine {
         }
 
         // Check if Ring B's gap is aligned with this joint
-        if (ringB != null && !joint.detachedFromB) {
+        if (ringB != null && !joint.detachedFromB && !ringB.isFreed) {
           double angleB = math.atan2(joint.position.dy - ringB.center.dy, joint.position.dx - ringB.center.dx);
-          if (GeometryMath.isJointInGap(ringB, angleB)) {
+          if (GeometryMath.isJointInGap(ringB, angleB, tolerance: 0.08)) {
             joint.detachedFromB = true;
             joint.updateReleaseState();
             stateChanged = true;
@@ -81,14 +71,7 @@ class UntangleEngine {
         if (ring.isFreed) continue;
 
         // Check if any joint still holds this ring
-        bool isHeld = level.joints.any((j) {
-          final otherId = (j.ringIdA == ring.id) ? j.ringIdB : j.ringIdA;
-          final otherRing = otherId != null
-              ? level.rings.firstWhere((r) => r.id == otherId, orElse: () => ring)
-              : null;
-          bool isOtherFreed = otherRing != null && otherRing.id != ring.id && otherRing.isFreed;
-          return j.isHoldingRing(ring.id, isOtherRingFreed: isOtherFreed);
-        });
+        bool isHeld = level.joints.any((j) => j.isHoldingRing(ring.id));
 
         if (!isHeld) {
           // Ring is completely unlocked!

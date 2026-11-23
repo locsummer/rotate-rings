@@ -19,11 +19,39 @@ class LevelCatalog {
     }
 
     LevelData level = _generateLevel(levelNumber);
+    for (final ring in level.rings) {
+      _lockRingInitially(ring, level.joints);
+    }
     _cachedLevels[levelNumber] = level;
     return level.clone();
   }
 
+  /// Ensures every ring starts in a locked puzzle state (no joint starts inside a gap)
+  static void _lockRingInitially(RingModel ring, List<JointModel> joints) {
+    if (ring.gapSweep <= 0.001) return;
+    final ringJoints = joints.where((j) => j.ringIdA == ring.id || j.ringIdB == ring.id).toList();
+    if (ringJoints.isEmpty) return;
+
+    // If current orientation is already safe, keep it
+    bool isCurrentlySafe = !ringJoints.any((j) {
+      double jAngle = math.atan2(j.position.dy - ring.center.dy, j.position.dx - ring.center.dx);
+      return ring.isAngleInGap(jAngle, tolerance: 0.15);
+    });
+    if (isCurrentlySafe) return;
+
+    for (double testAngle = 0.1; testAngle < 2 * math.pi; testAngle += 0.2) {
+      ring.currentAngle = testAngle;
+      bool anyJointInGap = ringJoints.any((j) {
+        double jAngle = math.atan2(j.position.dy - ring.center.dy, j.position.dx - ring.center.dx);
+        return ring.isAngleInGap(jAngle, tolerance: 0.15);
+      });
+      if (!anyJointInGap) return;
+    }
+  }
+
   static LevelData _generateLevel(int n) {
+    if (n == 1) return _buildLevel1();
+    if (n == 2) return _buildLevel2();
     if (n == 65) return _buildLevel65(); // Faithful reproduction of Shot 1
     if (n == 85) return _buildLevel85(); // Flower layout from Shot 2
     if (n == 46) return _buildLevel46(); // Robot layout from Shot 3
@@ -33,339 +61,1017 @@ class LevelCatalog {
     if (n == 36) return _buildLevel36(); // Double nested chain from Shot 7
     if (n == 42) return _buildLevel42(); // Totem layout from Shot 8
 
-    if (n <= 20) {
-      return _buildTier1(n); // 1-20: Intro & Basics (2-3 rings)
-    } else if (n <= 40) {
-      return _buildTier2(n); // 21-40: Dual Rings & Gaps (3-4 rings)
+    // Progressive difficulty scaling: ring count scales from 2 up to 10
+    int ringCount;
+    if (n <= 5) {
+      ringCount = 2;
+    } else if (n <= 15) {
+      ringCount = 3;
+    } else if (n <= 35) {
+      ringCount = 4;
     } else if (n <= 60) {
-      return _buildTier3(n); // 41-60: C-Lock & D-Ring Structures
-    } else if (n <= 80) {
-      return _buildTier4(n); // 61-80: Interlocked Chains & Trees (4-6 rings)
-    } else if (n <= 100) {
-      return _buildTier5(n); // 81-100: Triple Rings & Concentric Layers
-    } else if (n <= 130) {
-      return _buildTier6(n); // 101-130: Geometric Locks (Triangle, Diamond, Hex)
+      ringCount = 5;
+    } else if (n <= 90) {
+      ringCount = 6;
+    } else if (n <= 125) {
+      ringCount = 7;
     } else if (n <= 160) {
-      return _buildTier7(n); // 131-160: Multi-Layer Depth Hierarchies
-    } else if (n <= 180) {
-      return _buildTier8(n); // 161-180: Hybrid Multi-Structure Locks
+      ringCount = 8;
+    } else if (n <= 185) {
+      ringCount = 9;
     } else {
-      return _buildTier9(n); // 181-200: Master Complex Puzzles (6-9 rings)
+      ringCount = 10;
+    }
+
+    // 7 rich archetypes rotate dynamically so every consecutive level feels completely distinct!
+    int archetype = (n + (n ~/ 8)) % 7;
+    switch (archetype) {
+      case 0:
+        return _buildVineTreeLevel(n, ringCount);
+      case 1:
+        return _buildFloralLevel(n, ringCount);
+      case 2:
+        return _buildPolygonLevel(n, ringCount);
+      case 3:
+        return _buildConcentricOrbitalLevel(n, ringCount);
+      case 4:
+        return _buildBranchingTreeLevel(n, ringCount);
+      case 5:
+        return _buildGridLatticeLevel(n, ringCount);
+      case 6:
+      default:
+        return _buildGrandmasterHybridLevel(n, ringCount);
     }
   }
 
   // =========================================================================
-  // TIER 1: Levels 1–20 (Làm quen, 2-3 vòng)
+  // TUTORIAL LANDMARK LEVELS 1 & 2
   // =========================================================================
-  static LevelData _buildTier1(int n) {
-    if (n == 1) {
-      // 2 rings, 1 sleeve, 1 acorn
-      var r1 = RingModel(
-        id: 'r1',
-        center: const Offset(145, 300),
-        radius: 64,
-        strokeWidth: 24,
-        color: GameColors.pastelSkyBlue,
-        shapeType: RingShapeType.cLock,
-        gapStartAngle: 0.0,
-        gapSweep: 1.35,
-        currentAngle: math.pi, // facing left away from joint
-        hasAcorn: false,
-      );
-      var r2 = RingModel(
-        id: 'r2',
-        center: const Offset(255, 300),
-        radius: 64,
-        strokeWidth: 24,
-        color: GameColors.pastelOrange,
-        shapeType: RingShapeType.cLock,
-        gapStartAngle: 0.0,
-        gapSweep: 1.35,
-        currentAngle: math.pi * 0.45, // rotating clockwise hits joint
-        hasAcorn: true,
-      );
-      var j1 = _createJoint('j1', r1, r2, GameColors.pastelSkyBlue);
-      return LevelData(
-        levelNumber: 1,
-        title: "Khởi Đầu Thư Giãn",
-        category: "Làm Quen Vòng Tròn",
-        difficulty: 1,
-        rings: [r1, r2],
-        joints: [j1],
-        targetMoves: 2,
-        targetSeconds: 20,
-      );
-    }
-
-    if (n == 2) {
-      // 3 rings, 2 sleeves
-      var r1 = RingModel(
-        id: 'r1',
-        center: const Offset(135, 230),
-        radius: 56,
-        strokeWidth: 22,
-        color: GameColors.pastelOrange,
-        shapeType: RingShapeType.cLock,
-        gapStartAngle: 0.0,
-        gapSweep: 1.30,
-        currentAngle: -0.8,
-        hasAcorn: false,
-      );
-      var r2 = RingModel(
-        id: 'r2',
-        center: const Offset(265, 230),
-        radius: 56,
-        strokeWidth: 22,
-        color: GameColors.pastelSkyBlue,
-        shapeType: RingShapeType.cLock,
-        gapStartAngle: 0.0,
-        gapSweep: 1.30,
-        currentAngle: 1.2,
-        hasAcorn: true,
-      );
-      var r3 = RingModel(
-        id: 'r3',
-        center: const Offset(200, 360),
-        radius: 56,
-        strokeWidth: 22,
-        color: GameColors.pastelPurple,
-        shapeType: RingShapeType.cLock,
-        gapStartAngle: 0.0,
-        gapSweep: 1.30,
-        currentAngle: 0.0,
-        hasAcorn: true,
-      );
-      return LevelData(
-        levelNumber: 2,
-        title: "Bộ Ba Nhập Cuộc",
-        category: "Làm Quen Vòng Tròn",
-        difficulty: 1,
-        rings: [r1, r2, r3],
-        joints: [
-          _createJoint('j1_3', r1, r3, GameColors.pastelOrange),
-          _createJoint('j2_3', r2, r3, GameColors.pastelSkyBlue),
-        ],
-        targetMoves: 4,
-        targetSeconds: 30,
-      );
-    }
-
-    // Procedural Tier 1 (n = 3..20): 2 to 3 rings in diverse chains
-    final rng = math.Random(n * 101 + 7);
-    int count = (n <= 10) ? 2 : 3;
-    List<RingModel> rings = [];
-    List<JointModel> joints = [];
-
-    List<Color> palette = [
-      GameColors.pastelOrange,
-      GameColors.pastelSkyBlue,
-      GameColors.pastelPurple,
-      GameColors.pastelGreen,
-    ];
-
-    double baseX = 200.0;
-    double baseY = 240.0;
-    for (int i = 0; i < count; i++) {
-      Offset c = Offset(baseX + (i == 1 ? 55 : (i == 2 ? -55 : 0)), baseY + (i * 90));
-      rings.add(RingModel(
-        id: 'r${i + 1}',
-        center: c,
-        radius: 56,
-        strokeWidth: 22,
-        color: palette[i % palette.length],
-        shapeType: RingShapeType.cLock,
-        gapStartAngle: 0.0,
-        gapSweep: 1.30,
-        currentAngle: rng.nextDouble() * 2 * math.pi,
-        hasAcorn: (i % 2 == 1),
-      ));
-    }
-
-    for (int i = 0; i < count - 1; i++) {
-      joints.add(_createJoint('j_${i + 1}_${i + 2}', rings[i], rings[i + 1], rings[i].color));
-    }
-
+  static LevelData _buildLevel1() {
+    var r1 = RingModel(
+      id: 'r1',
+      center: const Offset(145, 300),
+      radius: 64,
+      strokeWidth: 24,
+      color: GameColors.pastelSkyBlue,
+      shapeType: RingShapeType.cLock,
+      gapStartAngle: 0.0,
+      gapSweep: 1.35,
+      currentAngle: math.pi, // facing left away from joint
+      hasAcorn: false,
+    );
+    var r2 = RingModel(
+      id: 'r2',
+      center: const Offset(255, 300),
+      radius: 64,
+      strokeWidth: 24,
+      color: GameColors.pastelOrange,
+      shapeType: RingShapeType.cLock,
+      gapStartAngle: 0.0,
+      gapSweep: 1.35,
+      currentAngle: 0.0, // facing right away from joint
+      hasAcorn: true,
+    );
+    var j1 = _createJoint('j1', r1, r2, GameColors.pastelSkyBlue);
     return LevelData(
-      levelNumber: n,
-      title: "Vòng Xoay $n",
+      levelNumber: 1,
+      title: "Khởi Đầu Thư Giãn",
       category: "Làm Quen Vòng Tròn",
       difficulty: 1,
-      rings: rings,
-      joints: joints,
-      targetMoves: count * 2,
+      rings: [r1, r2],
+      joints: [j1],
+      targetMoves: 2,
+      targetSeconds: 20,
+    );
+  }
+
+  static LevelData _buildLevel2() {
+    var r1 = RingModel(
+      id: 'r1',
+      center: const Offset(135, 230),
+      radius: 56,
+      strokeWidth: 22,
+      color: GameColors.pastelOrange,
+      shapeType: RingShapeType.cLock,
+      gapStartAngle: 0.0,
+      gapSweep: 1.30,
+      currentAngle: -0.8,
+      hasAcorn: false,
+    );
+    var r2 = RingModel(
+      id: 'r2',
+      center: const Offset(265, 230),
+      radius: 56,
+      strokeWidth: 22,
+      color: GameColors.pastelSkyBlue,
+      shapeType: RingShapeType.cLock,
+      gapStartAngle: 0.0,
+      gapSweep: 1.30,
+      currentAngle: 1.2,
+      hasAcorn: true,
+    );
+    var r3 = RingModel(
+      id: 'r3',
+      center: const Offset(200, 360),
+      radius: 56,
+      strokeWidth: 22,
+      color: GameColors.pastelPurple,
+      shapeType: RingShapeType.cLock,
+      gapStartAngle: 0.0,
+      gapSweep: 1.30,
+      currentAngle: 0.0,
+      hasAcorn: true,
+    );
+    return LevelData(
+      levelNumber: 2,
+      title: "Bộ Ba Nhập Cuộc",
+      category: "Làm Quen Vòng Tròn",
+      difficulty: 1,
+      rings: [r1, r2, r3],
+      joints: [
+        _createJoint('j1_3', r1, r3, GameColors.pastelOrange),
+        _createJoint('j2_3', r2, r3, GameColors.pastelSkyBlue),
+      ],
+      targetMoves: 4,
       targetSeconds: 30,
     );
   }
 
   // =========================================================================
-  // TIER 2: Levels 21–40 (3-4 rings)
+  // PROCEDURAL LEVEL HELPERS & STYLING
   // =========================================================================
-  static LevelData _buildTier2(int n) {
-    final rng = math.Random(n * 211 + 13);
-    int count = 4;
-    List<RingModel> rings = [];
-    List<JointModel> joints = [];
+  static const List<Color> _palette = [
+    GameColors.pastelOrange,
+    GameColors.pastelSkyBlue,
+    GameColors.pastelPurple,
+    GameColors.pastelGreen,
+    GameColors.pastelRed,
+    GameColors.pastelRoyalBlue,
+    GameColors.pastelForestGreen,
+    GameColors.pastelYellow,
+  ];
 
-    List<Offset> centers = [
-      const Offset(140, 200),
-      const Offset(260, 200),
-      const Offset(140, 340),
-      const Offset(260, 340),
-    ];
+  static Color _getColor(int index, int shift) {
+    return _palette[(index + shift).abs() % _palette.length];
+  }
 
-    List<Color> palette = [
-      GameColors.pastelOrange,
-      GameColors.pastelSkyBlue,
-      GameColors.pastelPurple,
-      GameColors.pastelGreen,
-    ];
+  static double _getRadius(int ringCount) {
+    if (ringCount <= 2) return 62.0;
+    if (ringCount == 3) return 56.0;
+    if (ringCount == 4) return 52.0;
+    if (ringCount <= 6) return 48.0;
+    if (ringCount <= 8) return 42.0;
+    return 38.0;
+  }
 
-    for (int i = 0; i < count; i++) {
+  static double _getStrokeWidth(int ringCount) {
+    if (ringCount <= 2) return 24.0;
+    if (ringCount <= 4) return 22.0;
+    if (ringCount <= 6) return 20.0;
+    return 19.0;
+  }
+
+  static double _getGapSweep(int n) {
+    return math.max(1.08, 1.34 - (n / 200.0) * 0.26);
+  }
+
+  static int _getDifficulty(int n) {
+    if (n <= 15) return 1;
+    if (n <= 50) return 2;
+    if (n <= 100) return 3;
+    if (n <= 160) return 4;
+    return 5;
+  }
+
+  // =========================================================================
+  // ARCHETYPE 0: SERPENTINE VINE / SNAKE CHAIN (Inspired by Level 65)
+  // =========================================================================
+  static LevelData _buildVineTreeLevel(int n, int count) {
+    final rng = math.Random(n * 733 + 17);
+    final rings = <RingModel>[];
+    final joints = <JointModel>[];
+    final radius = _getRadius(count);
+    final stroke = _getStrokeWidth(count);
+    final sweep = _getGapSweep(n);
+    final colorShift = (n * 3) % _palette.length;
+
+    const double cx = 195.0;
+    if (count <= 2) {
       rings.add(RingModel(
-        id: 'r${i + 1}',
-        center: centers[i],
-        radius: 54,
-        strokeWidth: 22,
-        color: palette[i],
+        id: 'r1',
+        center: const Offset(cx - 50, 300),
+        radius: radius,
+        strokeWidth: stroke,
+        color: _getColor(0, colorShift),
         shapeType: RingShapeType.cLock,
         gapStartAngle: 0.0,
-        gapSweep: 1.25,
-        currentAngle: rng.nextDouble() * 2 * math.pi,
-        hasAcorn: (i == 0 || i == 3),
+        gapSweep: sweep,
+        currentAngle: math.pi,
+        hasAcorn: false,
       ));
-    }
+      rings.add(RingModel(
+        id: 'r2',
+        center: const Offset(cx + 50, 300),
+        radius: radius,
+        strokeWidth: stroke,
+        color: _getColor(1, colorShift),
+        shapeType: RingShapeType.cLock,
+        gapStartAngle: 0.0,
+        gapSweep: sweep,
+        currentAngle: 0.0,
+        hasAcorn: true,
+      ));
+      joints.add(_createJoint('j_1_2', rings[0], rings[1], rings[0].color));
+    } else {
+      const double startY = 175.0;
+      const double endY = 465.0;
+      final double stepY = (endY - startY) / (count - 1);
+      final double swing = 44.0 + (n % 4) * 6.0;
 
-    // Connect into a ring/square chain
-    joints.add(_createJoint('j1_2', rings[0], rings[1], palette[0]));
-    joints.add(_createJoint('j1_3', rings[0], rings[2], palette[2]));
-    joints.add(_createJoint('j2_4', rings[1], rings[3], palette[1]));
+      for (int i = 0; i < count; i++) {
+        double phase = (i * 1.35) + (n * 0.4);
+        double x = cx + swing * math.sin(phase);
+        double y = startY + i * stepY;
+
+        rings.add(RingModel(
+          id: 'r${i + 1}',
+          center: Offset(x, y),
+          radius: radius,
+          strokeWidth: stroke,
+          color: _getColor(i, colorShift),
+          shapeType: RingShapeType.cLock,
+          gapStartAngle: 0.0,
+          gapSweep: sweep,
+          currentAngle: rng.nextDouble() * 2 * math.pi,
+          hasAcorn: (i % 3 == 1),
+        ));
+      }
+
+      for (int i = 0; i < count - 1; i++) {
+        joints.add(_createJoint(
+          'j_${rings[i].id}_${rings[i + 1].id}',
+          rings[i],
+          rings[i + 1],
+          rings[i].color,
+        ));
+      }
+    }
 
     return LevelData(
       levelNumber: n,
-      title: "Liên Hoàn Tứ Giác $n",
-      category: "Khe Hở Kép",
-      difficulty: 2,
+      title: "Dây Leo Uốn Lượn $n",
+      category: "Cấu Trúc Dây Leo",
+      difficulty: _getDifficulty(n),
       rings: rings,
       joints: joints,
-      targetMoves: 8,
-      targetSeconds: 40,
+      targetMoves: count * 2 + (n ~/ 25),
+      targetSeconds: 25 + count * 6 + (n ~/ 10),
     );
   }
 
   // =========================================================================
-  // TIER 3: Levels 41–60 (C-Lock & D-Ring Structures)
+  // ARCHETYPE 1: RADIAL FLOWER / STARBURST (Inspired by Level 85)
   // =========================================================================
-  static LevelData _buildTier3(int n) {
-    final rng = math.Random(n * 307 + 31);
-    List<RingModel> rings = [];
-    List<JointModel> joints = [];
+  static LevelData _buildFloralLevel(int n, int count) {
+    final rng = math.Random(n * 521 + 31);
+    final rings = <RingModel>[];
+    final joints = <JointModel>[];
+    final radius = _getRadius(count);
+    final stroke = _getStrokeWidth(count);
+    final sweep = _getGapSweep(n);
+    final colorShift = (n * 2) % _palette.length;
+    const double cx = 195.0;
+    const double cy = 285.0;
 
-    // Central anchor ring with 3 radiating petals
-    var centerRing = RingModel(
-      id: 'r_c',
-      center: const Offset(200, 290),
-      radius: 54,
-      strokeWidth: 24,
-      color: GameColors.pastelPurple,
+    if (count <= 2) {
+      return _buildVineTreeLevel(n, count);
+    }
+
+    // Center flower core
+    final centerRing = RingModel(
+      id: 'r1',
+      center: const Offset(cx, cy - 10),
+      radius: radius * 0.9,
+      strokeWidth: stroke,
+      color: _getColor(0, colorShift),
       shapeType: RingShapeType.cLock,
       gapStartAngle: 0.0,
-      gapSweep: 1.20,
+      gapSweep: sweep,
       currentAngle: rng.nextDouble() * 2 * math.pi,
       hasAcorn: true,
     );
     rings.add(centerRing);
 
-    List<double> angles = [-math.pi / 2, math.pi / 6, 5 * math.pi / 6];
-    List<Color> colors = [
-      GameColors.pastelOrange,
-      GameColors.pastelSkyBlue,
-      GameColors.pastelGreen,
-    ];
+    final int petalCount = count - 1;
+    final double dist = radius * 1.82;
+    final double angleOffset = (n * 0.3) - math.pi / 2;
 
-    for (int i = 0; i < 3; i++) {
-      double a = angles[i];
-      Offset c = Offset(centerRing.center.dx + 98 * math.cos(a), centerRing.center.dy + 98 * math.sin(a));
-      var petal = RingModel(
-        id: 'r_p$i',
-        center: c,
-        radius: 50,
-        strokeWidth: 22,
-        color: colors[i],
+    for (int i = 0; i < petalCount; i++) {
+      Offset pos;
+      if (count >= 6 && i == petalCount - 1) {
+        pos = Offset(cx, cy + dist * 1.35);
+      } else {
+        double a = angleOffset + (i * 2 * math.pi / (count >= 6 ? petalCount - 1 : petalCount));
+        pos = Offset(cx + dist * math.cos(a), (cy - 10) + dist * math.sin(a));
+      }
+
+      final petal = RingModel(
+        id: 'r${i + 2}',
+        center: pos,
+        radius: radius,
+        strokeWidth: stroke,
+        color: _getColor(i + 1, colorShift),
         shapeType: RingShapeType.cLock,
         gapStartAngle: 0.0,
-        gapSweep: 1.25,
+        gapSweep: sweep,
         currentAngle: rng.nextDouble() * 2 * math.pi,
-        hasAcorn: (i == 0),
+        hasAcorn: (i == 1 || i == 3),
       );
       rings.add(petal);
-      joints.add(_createJoint('j_c_$i', centerRing, petal, colors[i]));
+
+      joints.add(_createJoint(
+        'j_${centerRing.id}_${petal.id}',
+        centerRing,
+        petal,
+        petal.color,
+      ));
+    }
+
+    if (rings.length >= 4) {
+      joints.add(_createJoint(
+        'j_${rings[1].id}_${rings[2].id}',
+        rings[1],
+        rings[2],
+        rings[1].color,
+      ));
     }
 
     return LevelData(
       levelNumber: n,
-      title: "Hoa Cánh Xoay $n",
-      category: "Cấu Trúc C-Lock",
-      difficulty: 3,
+      title: "Đóa Hoa Kỳ Diệu $n",
+      category: "Cấu Trúc Tự Nhiên",
+      difficulty: _getDifficulty(n),
       rings: rings,
       joints: joints,
-      targetMoves: 8,
-      targetSeconds: 45,
+      targetMoves: count * 2 + (n ~/ 25),
+      targetSeconds: 25 + count * 6 + (n ~/ 10),
     );
   }
 
   // =========================================================================
-  // TIER 4: Levels 61–80 (Interlocked Chains & Trees)
+  // ARCHETYPE 2: GEOMETRIC POLYGON LOOP
   // =========================================================================
-  static LevelData _buildTier4(int n) {
-    final rng = math.Random(n * 409 + 43);
-    int count = 5;
-    List<RingModel> rings = [];
-    List<JointModel> joints = [];
+  static LevelData _buildPolygonLevel(int n, int count) {
+    final rng = math.Random(n * 643 + 47);
+    final rings = <RingModel>[];
+    final joints = <JointModel>[];
+    final radius = _getRadius(count);
+    final stroke = _getStrokeWidth(count);
+    final sweep = _getGapSweep(n);
+    final colorShift = (n * 5) % _palette.length;
+    const double cx = 195.0;
+    const double cy = 300.0;
 
-    List<Offset> centers = [
-      const Offset(150, 160),
-      const Offset(250, 220),
-      const Offset(150, 300),
-      const Offset(250, 380),
-      const Offset(150, 460),
-    ];
+    if (count <= 2) {
+      return _buildVineTreeLevel(n, count);
+    }
 
-    List<Color> palette = [
-      GameColors.pastelOrange,
-      GameColors.pastelSkyBlue,
-      GameColors.pastelPurple,
-      GameColors.pastelGreen,
-      GameColors.pastelRed,
-    ];
+    double polyRadius;
+    if (count == 3) {
+      polyRadius = 58.0;
+    } else if (count == 4) {
+      polyRadius = 72.0;
+    } else if (count <= 6) {
+      polyRadius = 88.0;
+    } else if (count <= 8) {
+      polyRadius = 102.0;
+    } else {
+      polyRadius = 112.0;
+    }
 
+    double startAngle = -math.pi / 2 + (n * 0.22);
     for (int i = 0; i < count; i++) {
+      double a = startAngle + (i * 2 * math.pi / count);
+      Offset pos = Offset(cx + polyRadius * math.cos(a), cy + (polyRadius * 0.94) * math.sin(a));
+
       rings.add(RingModel(
         id: 'r${i + 1}',
-        center: centers[i],
-        radius: 54,
-        strokeWidth: 22,
-        color: palette[i % palette.length],
+        center: pos,
+        radius: radius,
+        strokeWidth: stroke,
+        color: _getColor(i, colorShift),
         shapeType: RingShapeType.cLock,
         gapStartAngle: 0.0,
-        gapSweep: 1.20,
+        gapSweep: sweep,
         currentAngle: rng.nextDouble() * 2 * math.pi,
-        hasAcorn: (i % 2 == 1),
+        hasAcorn: (i % 2 == 0),
       ));
     }
 
-    for (int i = 0; i < count - 1; i++) {
-      joints.add(_createJoint('j_${i + 1}_${i + 2}', rings[i], rings[i + 1], rings[i].color));
+    for (int i = 0; i < count; i++) {
+      int next = (i + 1) % count;
+      joints.add(_createJoint(
+        'j_${rings[i].id}_${rings[next].id}',
+        rings[i],
+        rings[next],
+        rings[i].color,
+      ));
+    }
+
+    if (count >= 7) {
+      int opposite = count ~/ 2;
+      joints.add(_createJoint(
+        'j_strut_${rings[0].id}_${rings[opposite].id}',
+        rings[0],
+        rings[opposite],
+        rings[0].color,
+      ));
     }
 
     return LevelData(
       levelNumber: n,
-      title: "Chuỗi Liên Hoàn $n",
-      category: "Mắt Xích Đan Xen",
-      difficulty: 3,
+      title: "Đa Giác Khép Kín $n",
+      category: "Khóa Hình Học",
+      difficulty: _getDifficulty(n),
       rings: rings,
       joints: joints,
-      targetMoves: 10,
-      targetSeconds: 50,
+      targetMoves: count * 2 + (n ~/ 20),
+      targetSeconds: 25 + count * 6 + (n ~/ 10),
+    );
+  }
+
+  // =========================================================================
+  // ARCHETYPE 3: CONCENTRIC & ORBITAL SATELLITES (Inspired by Level 75)
+  // =========================================================================
+  static LevelData _buildConcentricOrbitalLevel(int n, int count) {
+    final rng = math.Random(n * 811 + 59);
+    final rings = <RingModel>[];
+    final joints = <JointModel>[];
+    final sweep = _getGapSweep(n);
+    final colorShift = (n * 4) % _palette.length;
+    const double cx = 195.0;
+    const double cy = 295.0;
+
+    if (count <= 2) {
+      var r1 = RingModel(
+        id: 'r1',
+        center: const Offset(cx, cy),
+        radius: 44,
+        strokeWidth: 22,
+        color: _getColor(0, colorShift),
+        shapeType: RingShapeType.cLock,
+        gapStartAngle: 0.0,
+        gapSweep: sweep,
+        currentAngle: rng.nextDouble() * 2 * math.pi,
+        hasAcorn: true,
+      );
+      var r2 = RingModel(
+        id: 'r2',
+        center: const Offset(cx, cy),
+        radius: 86,
+        strokeWidth: 22,
+        color: _getColor(1, colorShift),
+        shapeType: RingShapeType.cLock,
+        gapStartAngle: 0.0,
+        gapSweep: sweep,
+        currentAngle: rng.nextDouble() * 2 * math.pi,
+        hasAcorn: false,
+      );
+      rings.addAll([r1, r2]);
+      joints.add(_createJoint(
+        'j_c1_2',
+        r1,
+        r2,
+        r1.color,
+        customPosition: const Offset(cx, cy - 65),
+      ));
+    } else {
+      final inner = RingModel(
+        id: 'r1',
+        center: const Offset(cx, cy),
+        radius: 38,
+        strokeWidth: 20,
+        color: _getColor(0, colorShift),
+        shapeType: RingShapeType.cLock,
+        gapStartAngle: 0.0,
+        gapSweep: sweep,
+        currentAngle: rng.nextDouble() * 2 * math.pi,
+        hasAcorn: true,
+      );
+      final outer = RingModel(
+        id: 'r2',
+        center: const Offset(cx, cy),
+        radius: 78,
+        strokeWidth: 20,
+        color: _getColor(1, colorShift),
+        shapeType: RingShapeType.cLock,
+        gapStartAngle: 0.0,
+        gapSweep: sweep,
+        currentAngle: rng.nextDouble() * 2 * math.pi,
+        hasAcorn: false,
+      );
+      rings.addAll([inner, outer]);
+
+      joints.add(_createJoint(
+        'j_core',
+        inner,
+        outer,
+        inner.color,
+        customPosition: const Offset(cx, cy - 58),
+      ));
+
+      int satellites = count - 2;
+      double orbDist = 118.0;
+      double rotStart = -math.pi / 2 + (n * 0.25);
+
+      for (int i = 0; i < satellites; i++) {
+        double a = rotStart + (i * 2 * math.pi / satellites);
+        Offset pos = Offset(cx + orbDist * math.cos(a), cy + orbDist * math.sin(a));
+
+        var sat = RingModel(
+          id: 'r${i + 3}',
+          center: pos,
+          radius: 38,
+          strokeWidth: 19,
+          color: _getColor(i + 2, colorShift),
+          shapeType: RingShapeType.cLock,
+          gapStartAngle: 0.0,
+          gapSweep: sweep,
+          currentAngle: rng.nextDouble() * 2 * math.pi,
+          hasAcorn: (i % 2 == 1),
+        );
+        rings.add(sat);
+
+        joints.add(_createJoint(
+          'j_orb_${outer.id}_${sat.id}',
+          outer,
+          sat,
+          sat.color,
+        ));
+      }
+
+      if (satellites >= 4) {
+        joints.add(_createJoint(
+          'j_sat_loop',
+          rings[2],
+          rings[3],
+          rings[2].color,
+        ));
+      }
+    }
+
+    return LevelData(
+      levelNumber: n,
+      title: "Vòng Đồng Tâm Quỹ Đạo $n",
+      category: "Cấu Trúc Ba Vòng",
+      difficulty: _getDifficulty(n),
+      rings: rings,
+      joints: joints,
+      targetMoves: count * 2 + (n ~/ 20),
+      targetSeconds: 25 + count * 6 + (n ~/ 10),
+    );
+  }
+
+  // =========================================================================
+  // ARCHETYPE 4: BRANCHING TREE / FORK
+  // =========================================================================
+  static LevelData _buildBranchingTreeLevel(int n, int count) {
+    final rng = math.Random(n * 907 + 73);
+    final rings = <RingModel>[];
+    final joints = <JointModel>[];
+    final radius = _getRadius(count);
+    final stroke = _getStrokeWidth(count);
+    final sweep = _getGapSweep(n);
+    final colorShift = (n * 6) % _palette.length;
+    const double cx = 195.0;
+    const double cy = 300.0;
+
+    if (count <= 2) {
+      return _buildVineTreeLevel(n, count);
+    }
+
+    final root = RingModel(
+      id: 'r1',
+      center: const Offset(cx, cy + 115),
+      radius: radius,
+      strokeWidth: stroke,
+      color: _getColor(0, colorShift),
+      shapeType: RingShapeType.cLock,
+      gapStartAngle: 0.0,
+      gapSweep: sweep,
+      currentAngle: rng.nextDouble() * 2 * math.pi,
+      hasAcorn: true,
+    );
+    rings.add(root);
+
+    final mid = RingModel(
+      id: 'r2',
+      center: const Offset(cx, cy + 40),
+      radius: radius,
+      strokeWidth: stroke,
+      color: _getColor(1, colorShift),
+      shapeType: RingShapeType.cLock,
+      gapStartAngle: 0.0,
+      gapSweep: sweep,
+      currentAngle: rng.nextDouble() * 2 * math.pi,
+      hasAcorn: false,
+    );
+    rings.add(mid);
+    joints.add(_createJoint('j_root_mid', root, mid, root.color));
+
+    if (count == 3) {
+      final top = RingModel(
+        id: 'r3',
+        center: const Offset(cx, cy - 35),
+        radius: radius,
+        strokeWidth: stroke,
+        color: _getColor(2, colorShift),
+        shapeType: RingShapeType.cLock,
+        gapStartAngle: 0.0,
+        gapSweep: sweep,
+        currentAngle: rng.nextDouble() * 2 * math.pi,
+        hasAcorn: true,
+      );
+      rings.add(top);
+      joints.add(_createJoint('j_mid_top', mid, top, mid.color));
+    } else {
+      final leftBranch = RingModel(
+        id: 'r3',
+        center: const Offset(cx - 58, cy - 25),
+        radius: radius,
+        strokeWidth: stroke,
+        color: _getColor(2, colorShift),
+        shapeType: RingShapeType.cLock,
+        gapStartAngle: 0.0,
+        gapSweep: sweep,
+        currentAngle: rng.nextDouble() * 2 * math.pi,
+        hasAcorn: false,
+      );
+      final rightBranch = RingModel(
+        id: 'r4',
+        center: const Offset(cx + 58, cy - 25),
+        radius: radius,
+        strokeWidth: stroke,
+        color: _getColor(3, colorShift),
+        shapeType: RingShapeType.cLock,
+        gapStartAngle: 0.0,
+        gapSweep: sweep,
+        currentAngle: rng.nextDouble() * 2 * math.pi,
+        hasAcorn: true,
+      );
+      rings.addAll([leftBranch, rightBranch]);
+      joints.add(_createJoint('j_mid_left', mid, leftBranch, leftBranch.color));
+      joints.add(_createJoint('j_mid_right', mid, rightBranch, rightBranch.color));
+
+      int leaves = count - 4;
+      if (leaves > 0) {
+        double span = 145.0;
+        for (int k = 0; k < leaves; k++) {
+          double x = cx - (span / 2) + k * (span / (leaves > 1 ? leaves - 1 : 1));
+          double y = cy - 95 - (k % 2 == 1 ? 12 : 0);
+
+          final leaf = RingModel(
+            id: 'r${k + 5}',
+            center: Offset(x, y),
+            radius: radius,
+            strokeWidth: stroke,
+            color: _getColor(k + 4, colorShift),
+            shapeType: RingShapeType.cLock,
+            gapStartAngle: 0.0,
+            gapSweep: sweep,
+            currentAngle: rng.nextDouble() * 2 * math.pi,
+            hasAcorn: (k % 2 == 0),
+          );
+          rings.add(leaf);
+
+          var parent = (x <= cx) ? leftBranch : rightBranch;
+          joints.add(_createJoint('j_leaf_${k + 1}', parent, leaf, leaf.color));
+        }
+      }
+    }
+
+    return LevelData(
+      levelNumber: n,
+      title: "Nhánh Cây Tri Thức $n",
+      category: "Cấu Trúc Cây Khóa",
+      difficulty: _getDifficulty(n),
+      rings: rings,
+      joints: joints,
+      targetMoves: count * 2 + (n ~/ 25),
+      targetSeconds: 25 + count * 6 + (n ~/ 10),
+    );
+  }
+
+  // =========================================================================
+  // ARCHETYPE 5: GRID / MATRIX LATTICE
+  // =========================================================================
+  static LevelData _buildGridLatticeLevel(int n, int count) {
+    final rng = math.Random(n * 977 + 89);
+    final rings = <RingModel>[];
+    final joints = <JointModel>[];
+    final radius = _getRadius(count);
+    final stroke = _getStrokeWidth(count);
+    final sweep = _getGapSweep(n);
+    final colorShift = (n * 7) % _palette.length;
+    const double cx = 195.0;
+    const double cy = 300.0;
+
+    if (count <= 3) {
+      return _buildPolygonLevel(n, count);
+    }
+
+    if (count == 4) {
+      List<Offset> positions = [
+        const Offset(cx - 48, cy - 48),
+        const Offset(cx + 48, cy - 48),
+        const Offset(cx - 48, cy + 48),
+        const Offset(cx + 48, cy + 48),
+      ];
+      for (int i = 0; i < 4; i++) {
+        rings.add(RingModel(
+          id: 'r${i + 1}',
+          center: positions[i],
+          radius: radius,
+          strokeWidth: stroke,
+          color: _getColor(i, colorShift),
+          shapeType: RingShapeType.cLock,
+          gapStartAngle: 0.0,
+          gapSweep: sweep,
+          currentAngle: rng.nextDouble() * 2 * math.pi,
+          hasAcorn: (i == 0 || i == 3),
+        ));
+      }
+      joints.add(_createJoint('j1_2', rings[0], rings[1], rings[0].color));
+      joints.add(_createJoint('j3_4', rings[2], rings[3], rings[2].color));
+      joints.add(_createJoint('j1_3', rings[0], rings[2], rings[0].color));
+      joints.add(_createJoint('j2_4', rings[1], rings[3], rings[1].color));
+    } else if (count == 5) {
+      List<Offset> positions = [
+        const Offset(cx, cy),
+        const Offset(cx, cy - 74),
+        const Offset(cx, cy + 74),
+        const Offset(cx - 74, cy),
+        const Offset(cx + 74, cy),
+      ];
+      for (int i = 0; i < 5; i++) {
+        rings.add(RingModel(
+          id: 'r${i + 1}',
+          center: positions[i],
+          radius: radius,
+          strokeWidth: stroke,
+          color: _getColor(i, colorShift),
+          shapeType: RingShapeType.cLock,
+          gapStartAngle: 0.0,
+          gapSweep: sweep,
+          currentAngle: rng.nextDouble() * 2 * math.pi,
+          hasAcorn: (i == 0 || i == 2),
+        ));
+      }
+      joints.add(_createJoint('j_c_top', rings[0], rings[1], rings[1].color));
+      joints.add(_createJoint('j_c_bot', rings[0], rings[2], rings[2].color));
+      joints.add(_createJoint('j_c_left', rings[0], rings[3], rings[3].color));
+      joints.add(_createJoint('j_c_right', rings[0], rings[4], rings[4].color));
+    } else if (count == 6) {
+      List<Offset> positions = [];
+      for (int row = 0; row < 3; row++) {
+        for (int col = 0; col < 2; col++) {
+          positions.add(Offset(cx - 48 + col * 96, cy - 82 + row * 82));
+        }
+      }
+      for (int i = 0; i < 6; i++) {
+        rings.add(RingModel(
+          id: 'r${i + 1}',
+          center: positions[i],
+          radius: radius,
+          strokeWidth: stroke,
+          color: _getColor(i, colorShift),
+          shapeType: RingShapeType.cLock,
+          gapStartAngle: 0.0,
+          gapSweep: sweep,
+          currentAngle: rng.nextDouble() * 2 * math.pi,
+          hasAcorn: (i % 2 == 1),
+        ));
+      }
+      joints.add(_createJoint('jh_0_1', rings[0], rings[1], rings[0].color));
+      joints.add(_createJoint('jh_2_3', rings[2], rings[3], rings[2].color));
+      joints.add(_createJoint('jh_4_5', rings[4], rings[5], rings[4].color));
+      joints.add(_createJoint('jv_0_2', rings[0], rings[2], rings[0].color));
+      joints.add(_createJoint('jv_1_3', rings[1], rings[3], rings[1].color));
+      joints.add(_createJoint('jv_2_4', rings[2], rings[4], rings[2].color));
+      joints.add(_createJoint('jv_3_5', rings[3], rings[5], rings[3].color));
+    } else {
+      List<Offset> grid = [];
+      for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 3; c++) {
+          grid.add(Offset(cx - 68 + c * 68, cy - 68 + r * 68));
+        }
+      }
+      if (count == 10) {
+        grid.add(const Offset(cx, cy - 128));
+      }
+      for (int i = 0; i < count; i++) {
+        rings.add(RingModel(
+          id: 'r${i + 1}',
+          center: grid[i],
+          radius: radius,
+          strokeWidth: stroke,
+          color: _getColor(i, colorShift),
+          shapeType: RingShapeType.cLock,
+          gapStartAngle: 0.0,
+          gapSweep: sweep,
+          currentAngle: rng.nextDouble() * 2 * math.pi,
+          hasAcorn: (i % 3 == 0),
+        ));
+      }
+      for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 3; c++) {
+          int idx = r * 3 + c;
+          if (idx >= count) break;
+          if (c < 2 && (idx + 1) < count) {
+            joints.add(_createJoint('j_h_${idx}_${idx + 1}', rings[idx], rings[idx + 1], rings[idx].color));
+          }
+          if (r < 2 && (idx + 3) < count) {
+            joints.add(_createJoint('j_v_${idx}_${idx + 3}', rings[idx], rings[idx + 3], rings[idx].color));
+          }
+        }
+      }
+      if (count == 10) {
+        joints.add(_createJoint('j_crown', rings[9], rings[1], rings[9].color));
+      }
+    }
+
+    return LevelData(
+      levelNumber: n,
+      title: "Mạng Lưới Ma Trận $n",
+      category: "Khóa Lưới Đa Chiều",
+      difficulty: _getDifficulty(n),
+      rings: rings,
+      joints: joints,
+      targetMoves: count * 2 + (n ~/ 20),
+      targetSeconds: 25 + count * 6 + (n ~/ 10),
+    );
+  }
+
+  // =========================================================================
+  // ARCHETYPE 6: GRANDMASTER HYBRID (Sculptures, Totems, Wings)
+  // =========================================================================
+  static LevelData _buildGrandmasterHybridLevel(int n, int count) {
+    final rng = math.Random(n * 1033 + 97);
+    final rings = <RingModel>[];
+    final joints = <JointModel>[];
+    final radius = _getRadius(count);
+    final stroke = _getStrokeWidth(count);
+    final sweep = _getGapSweep(n);
+    final colorShift = (n * 3) % _palette.length;
+    const double cx = 195.0;
+    const double cy = 295.0;
+
+    int theme = n % 3;
+    if (theme == 0) {
+      final centerCore = RingModel(
+        id: 'r1',
+        center: const Offset(cx, cy),
+        radius: radius,
+        strokeWidth: stroke,
+        color: _getColor(0, colorShift),
+        shapeType: RingShapeType.cLock,
+        gapStartAngle: 0.0,
+        gapSweep: sweep,
+        currentAngle: rng.nextDouble() * 2 * math.pi,
+        hasAcorn: true,
+      );
+      rings.add(centerCore);
+
+      List<Offset> wingOffsets = [
+        const Offset(cx - 68, cy - 55),
+        const Offset(cx + 68, cy - 55),
+        const Offset(cx - 68, cy + 55),
+        const Offset(cx + 68, cy + 55),
+        const Offset(cx, cy - 95),
+        const Offset(cx, cy + 95),
+        const Offset(cx - 110, cy),
+        const Offset(cx + 110, cy),
+        const Offset(cx, cy - 145),
+      ];
+
+      for (int i = 0; i < count - 1; i++) {
+        var wing = RingModel(
+          id: 'r${i + 2}',
+          center: wingOffsets[i % wingOffsets.length],
+          radius: radius * (i >= 4 ? 0.9 : 1.0),
+          strokeWidth: stroke,
+          color: _getColor(i + 1, colorShift),
+          shapeType: RingShapeType.cLock,
+          gapStartAngle: 0.0,
+          gapSweep: sweep,
+          currentAngle: rng.nextDouble() * 2 * math.pi,
+          hasAcorn: (i % 2 == 1),
+        );
+        rings.add(wing);
+
+        if (i < 4) {
+          joints.add(_createJoint('j_core_${wing.id}', centerCore, wing, wing.color));
+        } else if (i == 4) {
+          joints.add(_createJoint('j_head', rings[1], wing, wing.color));
+        } else if (i == 5) {
+          joints.add(_createJoint('j_tail', rings[3], wing, wing.color));
+        } else if (i == 6) {
+          joints.add(_createJoint('j_ltip', rings[1], wing, wing.color));
+        } else if (i == 7) {
+          joints.add(_createJoint('j_rtip', rings[2], wing, wing.color));
+        } else {
+          joints.add(_createJoint('j_ant', rings[5], wing, wing.color));
+        }
+      }
+    } else if (theme == 1) {
+      List<Offset> rocketPositions = [
+        const Offset(cx, cy - 115),
+        const Offset(cx, cy - 45),
+        const Offset(cx, cy + 25),
+        const Offset(cx - 65, cy + 25),
+        const Offset(cx + 65, cy + 25),
+        const Offset(cx - 65, cy + 95),
+        const Offset(cx + 65, cy + 95),
+        const Offset(cx, cy + 95),
+        const Offset(cx - 105, cy + 70),
+        const Offset(cx + 105, cy + 70),
+      ];
+
+      for (int i = 0; i < count; i++) {
+        rings.add(RingModel(
+          id: 'r${i + 1}',
+          center: rocketPositions[i % rocketPositions.length],
+          radius: radius,
+          strokeWidth: stroke,
+          color: _getColor(i, colorShift),
+          shapeType: RingShapeType.cLock,
+          gapStartAngle: 0.0,
+          gapSweep: sweep,
+          currentAngle: rng.nextDouble() * 2 * math.pi,
+          hasAcorn: (i == 0 || i == 2),
+        ));
+      }
+
+      joints.add(_createJoint('j_spine1', rings[0], rings[1], rings[0].color));
+      if (count > 2) joints.add(_createJoint('j_spine2', rings[1], rings[2], rings[1].color));
+      if (count > 3) joints.add(_createJoint('j_boost_l', rings[2], rings[3], rings[3].color));
+      if (count > 4) joints.add(_createJoint('j_boost_r', rings[2], rings[4], rings[4].color));
+      if (count > 5) joints.add(_createJoint('j_fin_l', rings[3], rings[5], rings[5].color));
+      if (count > 6) joints.add(_createJoint('j_fin_r', rings[4], rings[6], rings[6].color));
+      if (count > 7) joints.add(_createJoint('j_engine', rings[2], rings[7], rings[7].color));
+      if (count > 8) joints.add(_createJoint('j_out_l', rings[3], rings[8], rings[8].color));
+      if (count > 9) joints.add(_createJoint('j_out_r', rings[4], rings[9], rings[9].color));
+    } else {
+      List<Offset> totemPositions = [
+        const Offset(cx, cy - 90),
+        const Offset(cx - 60, cy - 35),
+        const Offset(cx + 60, cy - 35),
+        const Offset(cx, cy + 20),
+        const Offset(cx - 60, cy + 75),
+        const Offset(cx + 60, cy + 75),
+        const Offset(cx, cy + 130),
+        const Offset(cx - 105, cy + 20),
+        const Offset(cx + 105, cy + 20),
+        const Offset(cx, cy - 145),
+      ];
+
+      for (int i = 0; i < count; i++) {
+        rings.add(RingModel(
+          id: 'r${i + 1}',
+          center: totemPositions[i % totemPositions.length],
+          radius: radius,
+          strokeWidth: stroke,
+          color: _getColor(i, colorShift),
+          shapeType: RingShapeType.cLock,
+          gapStartAngle: 0.0,
+          gapSweep: sweep,
+          currentAngle: rng.nextDouble() * 2 * math.pi,
+          hasAcorn: (i % 2 == 0),
+        ));
+      }
+
+      for (int i = 0; i < count - 1; i++) {
+        joints.add(_createJoint(
+          'j_totem_${i + 1}_${i + 2}',
+          rings[i],
+          rings[i + 1],
+          rings[i].color,
+        ));
+      }
+      if (count >= 5) {
+        joints.add(_createJoint('j_totem_cross', rings[1], rings[3], rings[1].color));
+      }
+    }
+
+    return LevelData(
+      levelNumber: n,
+      title: "Tuyệt Phẩm Cơ Khí $n",
+      category: "Cấu Trúc Tinh Xảo",
+      difficulty: _getDifficulty(n),
+      rings: rings,
+      joints: joints,
+      targetMoves: count * 2 + (n ~/ 20),
+      targetSeconds: 25 + count * 6 + (n ~/ 10),
     );
   }
 
@@ -1126,294 +1832,7 @@ class LevelCatalog {
     );
   }
 
-  // =========================================================================
-  // TIER 5 to 9 Procedural Generators
-  // =========================================================================
-  static LevelData _buildTier5(int n) {
-    final rng = math.Random(n * 503 + 53);
-    Offset center = const Offset(200, 290);
-    List<RingModel> rings = [
-      RingModel(
-        id: 'r1',
-        center: center,
-        radius: 45,
-        strokeWidth: 20,
-        color: GameColors.pastelOrange,
-        shapeType: RingShapeType.cLock,
-        gapStartAngle: 0.0,
-        gapSweep: 1.25,
-        currentAngle: rng.nextDouble() * 2 * math.pi,
-        hasAcorn: true,
-        layer: 2,
-      ),
-      RingModel(
-        id: 'r2',
-        center: center,
-        radius: 80,
-        strokeWidth: 20,
-        color: GameColors.pastelSkyBlue,
-        shapeType: RingShapeType.cLock,
-        gapStartAngle: 0.0,
-        gapSweep: 1.20,
-        currentAngle: rng.nextDouble() * 2 * math.pi,
-        hasAcorn: false,
-        layer: 1,
-      ),
-      RingModel(
-        id: 'r3',
-        center: center,
-        radius: 115,
-        strokeWidth: 20,
-        color: GameColors.pastelPurple,
-        shapeType: RingShapeType.cLock,
-        gapStartAngle: 0.0,
-        gapSweep: 1.15,
-        currentAngle: rng.nextDouble() * 2 * math.pi,
-        hasAcorn: false,
-        layer: 0,
-      ),
-    ];
 
-    return LevelData(
-      levelNumber: n,
-      title: "Vòng Đồng Tâm $n",
-      category: "Cấu Trúc Ba Vòng",
-      difficulty: 3,
-      rings: rings,
-      joints: [
-        _createJoint('j1_2', rings[0], rings[1], GameColors.pastelSkyBlue),
-        _createJoint('j2_3', rings[1], rings[2], GameColors.pastelPurple),
-      ],
-      targetMoves: 8,
-      targetSeconds: 45,
-    );
-  }
-
-  static LevelData _buildTier6(int n) {
-    final rng = math.Random(n * 607 + 61);
-    int nodes = 5;
-    List<RingModel> rings = [];
-    List<JointModel> joints = [];
-    Offset center = const Offset(200, 290);
-    double radius = 105.0;
-
-    List<Color> palette = [
-      GameColors.pastelOrange,
-      GameColors.pastelSkyBlue,
-      GameColors.pastelPurple,
-      GameColors.pastelGreen,
-      GameColors.pastelRed,
-    ];
-
-    for (int i = 0; i < nodes; i++) {
-      double angle = (i * 2 * math.pi / nodes) - math.pi / 2;
-      Offset pos = Offset(center.dx + radius * math.cos(angle), center.dy + radius * math.sin(angle));
-      rings.add(RingModel(
-        id: 'r${i + 1}',
-        center: pos,
-        radius: 46,
-        strokeWidth: 20,
-        color: palette[i % palette.length],
-        shapeType: RingShapeType.cLock,
-        gapStartAngle: 0.0,
-        gapSweep: 1.25,
-        currentAngle: rng.nextDouble() * 2 * math.pi,
-        hasAcorn: (i % 2 == 0),
-      ));
-    }
-
-    for (int i = 0; i < nodes; i++) {
-      int next = (i + 1) % nodes;
-      joints.add(_createJoint('j_${i + 1}_${next + 1}', rings[i], rings[next], palette[i]));
-    }
-
-    return LevelData(
-      levelNumber: n,
-      title: "Ngũ Giác Hoa $n",
-      category: "Khóa Hình Học",
-      difficulty: 4,
-      rings: rings,
-      joints: joints,
-      targetMoves: 10,
-      targetSeconds: 50,
-    );
-  }
-
-  static LevelData _buildTier7(int n) {
-    final rng = math.Random(n * 709 + 71);
-    List<RingModel> rings = [];
-    List<JointModel> joints = [];
-
-    var hub = RingModel(
-      id: 'r_hub',
-      center: const Offset(200, 290),
-      radius: 54,
-      strokeWidth: 22,
-      color: GameColors.pastelPurple,
-      shapeType: RingShapeType.cLock,
-      gapStartAngle: 0.0,
-      gapSweep: 1.20,
-      currentAngle: rng.nextDouble() * 2 * math.pi,
-      hasAcorn: true,
-    );
-    rings.add(hub);
-
-    List<Color> colors = [
-      GameColors.pastelOrange,
-      GameColors.pastelSkyBlue,
-      GameColors.pastelGreen,
-      GameColors.pastelRed,
-    ];
-
-    for (int i = 0; i < 4; i++) {
-      double a = (i * math.pi / 2);
-      Offset pos = Offset(hub.center.dx + 95 * math.cos(a), hub.center.dy + 95 * math.sin(a));
-      var r = RingModel(
-        id: 'r_$i',
-        center: pos,
-        radius: 48,
-        strokeWidth: 20,
-        color: colors[i],
-        shapeType: RingShapeType.cLock,
-        gapStartAngle: 0.0,
-        gapSweep: 1.25,
-        currentAngle: rng.nextDouble() * 2 * math.pi,
-        hasAcorn: (i == 1),
-      );
-      rings.add(r);
-      joints.add(_createJoint('j_h_$i', hub, r, colors[i]));
-    }
-
-    return LevelData(
-      levelNumber: n,
-      title: "Đa Tầng Đối Xứng $n",
-      category: "Cấu Trúc Nhiều Tầng",
-      difficulty: 4,
-      rings: rings,
-      joints: joints,
-      targetMoves: 10,
-      targetSeconds: 55,
-    );
-  }
-
-  static LevelData _buildTier8(int n) {
-    final rng = math.Random(n * 811 + 83);
-    int count = 6;
-    List<RingModel> rings = [];
-    List<JointModel> joints = [];
-
-    List<Color> palette = [
-      GameColors.pastelOrange,
-      GameColors.pastelSkyBlue,
-      GameColors.pastelPurple,
-      GameColors.pastelGreen,
-      GameColors.pastelRed,
-      GameColors.pastelForestGreen,
-    ];
-
-    List<Offset> positions = [
-      const Offset(140, 160),
-      const Offset(260, 160),
-      const Offset(200, 260),
-      const Offset(140, 360),
-      const Offset(260, 360),
-      const Offset(200, 460),
-    ];
-
-    for (int i = 0; i < count; i++) {
-      rings.add(RingModel(
-        id: 'r${i + 1}',
-        center: positions[i],
-        radius: 50,
-        strokeWidth: 20,
-        color: palette[i],
-        shapeType: RingShapeType.cLock,
-        gapStartAngle: 0.0,
-        gapSweep: 1.25,
-        currentAngle: rng.nextDouble() * 2 * math.pi,
-        hasAcorn: (i == 2 || i == 5),
-      ));
-    }
-
-    joints.add(_createJoint('j1_3', rings[0], rings[2], palette[0]));
-    joints.add(_createJoint('j2_3', rings[1], rings[2], palette[1]));
-    joints.add(_createJoint('j3_4', rings[2], rings[3], palette[2]));
-    joints.add(_createJoint('j3_5', rings[2], rings[4], palette[2]));
-    joints.add(_createJoint('j4_6', rings[3], rings[5], palette[3]));
-    joints.add(_createJoint('j5_6', rings[4], rings[5], palette[4]));
-
-    return LevelData(
-      levelNumber: n,
-      title: "Khóa Lai Tạo $n",
-      category: "Kết Hợp Đa Dạng",
-      difficulty: 5,
-      rings: rings,
-      joints: joints,
-      targetMoves: 14,
-      targetSeconds: 70,
-    );
-  }
-
-  static LevelData _buildTier9(int n) {
-    final rng = math.Random(n * 919 + 97);
-    int count = 7;
-    List<RingModel> rings = [];
-    List<JointModel> joints = [];
-
-    List<Color> palette = [
-      GameColors.pastelOrange,
-      GameColors.pastelSkyBlue,
-      GameColors.pastelPurple,
-      GameColors.pastelGreen,
-      GameColors.pastelRed,
-      GameColors.pastelForestGreen,
-      GameColors.pastelRoyalBlue,
-    ];
-
-    List<Offset> positions = [
-      const Offset(150, 140),
-      const Offset(250, 140),
-      const Offset(200, 230),
-      const Offset(120, 320),
-      const Offset(280, 320),
-      const Offset(200, 410),
-      const Offset(200, 500),
-    ];
-
-    for (int i = 0; i < count; i++) {
-      rings.add(RingModel(
-        id: 'r${i + 1}',
-        center: positions[i],
-        radius: 48,
-        strokeWidth: 20,
-        color: palette[i],
-        shapeType: RingShapeType.cLock,
-        gapStartAngle: 0.0,
-        gapSweep: 1.25,
-        currentAngle: rng.nextDouble() * 2 * math.pi,
-        hasAcorn: (i == 0 || i == 2 || i == 5),
-      ));
-    }
-
-    joints.add(_createJoint('j1_3', rings[0], rings[2], palette[0]));
-    joints.add(_createJoint('j2_3', rings[1], rings[2], palette[1]));
-    joints.add(_createJoint('j3_4', rings[2], rings[3], palette[2]));
-    joints.add(_createJoint('j3_5', rings[2], rings[4], palette[2]));
-    joints.add(_createJoint('j4_6', rings[3], rings[5], palette[3]));
-    joints.add(_createJoint('j5_6', rings[4], rings[5], palette[4]));
-    joints.add(_createJoint('j6_7', rings[5], rings[6], palette[5]));
-
-    return LevelData(
-      levelNumber: n,
-      title: "Bậc Thầy Tháo Gỡ $n",
-      category: "Puzzle Phức Tạp",
-      difficulty: 5,
-      rings: rings,
-      joints: joints,
-      targetMoves: 16,
-      targetSeconds: 85,
-    );
-  }
 
   static JointModel _createJoint(
     String id,
@@ -1421,14 +1840,16 @@ class LevelCatalog {
     RingModel rB,
     Color color, {
     bool isSilver = false,
+    Offset? customPosition,
   }) {
-    Offset mid = Offset((rA.center.dx + rB.center.dx) / 2, (rA.center.dy + rB.center.dy) / 2);
-    double aOnA = math.atan2(mid.dy - rA.center.dy, mid.dx - rA.center.dx);
-    double aOnB = math.atan2(mid.dy - rB.center.dy, mid.dx - rB.center.dx);
+    Offset pos = customPosition ??
+        Offset((rA.center.dx + rB.center.dx) / 2, (rA.center.dy + rB.center.dy) / 2);
+    double aOnA = math.atan2(pos.dy - rA.center.dy, pos.dx - rA.center.dx);
+    double aOnB = math.atan2(pos.dy - rB.center.dy, pos.dx - rB.center.dx);
     return JointModel(
       id: id,
       type: JointType.sleeve,
-      position: mid,
+      position: pos,
       ringIdA: rA.id,
       ringIdB: rB.id,
       color: color,

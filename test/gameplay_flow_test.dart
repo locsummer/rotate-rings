@@ -91,7 +91,7 @@ void main() {
     });
 
     test('Cascade untangle frees entire structure when all gaps aligned', () {
-      final lvl = LevelCatalog.getLevel(10);
+      final lvl = LevelCatalog.getLevel(1);
       expect(lvl.rings.length, 2);
       expect(lvl.joints.isNotEmpty, isTrue);
 

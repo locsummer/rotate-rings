@@ -268,7 +268,7 @@ void main() {
       expect(r2.center, const Offset(10, 20));
     });
 
-    test('3.7: JointModel isHoldingRing handles detached states', () {
+    test('3.7: JointModel isHoldingRing requires each ring to detach its own gap', () {
       var j = JointModel(
         id: 'j',
         position: const Offset(50, 50),
@@ -282,9 +282,15 @@ void main() {
       expect(j.isHoldingRing('rB'), isTrue);
 
       j.detachedFromA = true;
+      j.updateReleaseState();
       expect(j.isHoldingRing('rA'), isFalse);
-      // When A is detached, sleeve no longer anchors B
+      expect(j.isHoldingRing('rB'), isTrue);
+      expect(j.isReleased, isFalse);
+
+      j.detachedFromB = true;
+      j.updateReleaseState();
       expect(j.isHoldingRing('rB'), isFalse);
+      expect(j.isReleased, isTrue);
     });
 
     test('3.8: JointModel isHoldingRing pin type is independent', () {
@@ -303,17 +309,30 @@ void main() {
   });
 
   group('Group 4: Untangle Engine & Cascade Mechanics', () {
-    test('4.1: Cascade releases 2-ring chain upon single gap alignment', () {
+    test('4.1: Untangle requires each ring to align its gap before being freed', () {
       final lvl = LevelCatalog.getLevel(1);
+      final r1 = lvl.rings[0];
       final r2 = lvl.rings[1];
       final j = lvl.joints.first;
 
-      double angle = math.atan2(j.position.dy - r2.center.dy, j.position.dx - r2.center.dx);
-      r2.currentAngle = GeometryMath.normalizeAngle(angle - r2.gapStartAngle - (r2.gapSweep / 2.0));
+      // Align r2's gap with joint
+      double angle2 = math.atan2(j.position.dy - r2.center.dy, j.position.dx - r2.center.dx);
+      r2.currentAngle = GeometryMath.normalizeAngle(angle2 - r2.gapStartAngle - (r2.gapSweep / 2.0));
 
-      final res = UntangleEngine.checkAndReleaseCascade(lvl, activeRing: r2);
-      expect(res.freedRings.length, 2);
-      expect(res.puzzleComplete, isTrue);
+      final res1 = UntangleEngine.checkAndReleaseCascade(lvl, activeRing: r2);
+      expect(res1.freedRings.length, 1);
+      expect(res1.freedRings.first.id, r2.id);
+      expect(res1.puzzleComplete, isFalse);
+
+      // r1 is still on screen and locked until r1 also aligns its gap
+      expect(r1.isFreed, isFalse);
+      double angle1 = math.atan2(j.position.dy - r1.center.dy, j.position.dx - r1.center.dx);
+      r1.currentAngle = GeometryMath.normalizeAngle(angle1 - r1.gapStartAngle - (r1.gapSweep / 2.0));
+
+      final res2 = UntangleEngine.checkAndReleaseCascade(lvl, activeRing: r1);
+      expect(res2.freedRings.length, 1);
+      expect(res2.freedRings.first.id, r1.id);
+      expect(res2.puzzleComplete, isTrue);
     });
 
     test('4.2: Acorn counter increments accurately when acorn ring frees', () {
