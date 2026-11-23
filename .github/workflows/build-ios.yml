@@ -1,0 +1,67 @@
+name: Build iOS IPA for Sideloadly
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-ios:
+    name: Build iOS IPA
+    runs-on: macos-14
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Build iOS Application (Unsigned Release)
+        run: |
+          flutter build ios --release --no-codesign
+
+      - name: Package Payload into IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          zip -r -9 rotate-rings.ipa Payload
+
+      - name: Upload IPA as GitHub Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rotate-rings-ipa
+          path: rotate-rings.ipa
+          retention-days: 30
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        with:
+          tag_name: ios-ipa
+          name: "Rotate Rings iOS IPA (Sideloadly Ready)"
+          body: |
+            ## 📱 Rotate Rings - iOS Release IPA
+            Bản build IPA dành riêng cho việc cài đặt qua **Sideloadly** hoặc **AltStore** trên iPhone / iPad.
+            
+            ### Hướng dẫn cài đặt qua Sideloadly:
+            1. Tải file `rotate-rings.ipa` bên dưới về máy tính.
+            2. Cắm iPhone / iPad vào máy tính qua cáp USB (đảm bảo iTunes đã nhận diện thiết bị).
+            3. Mở **Sideloadly**, kéo thả file `rotate-rings.ipa` vào ô IPA.
+            4. Nhập tài khoản Apple ID của bạn.
+            5. Bấm nút **Start** và đợi Sideloadly ký và cài app vào máy (hiện chữ `Done`).
+            6. Trên iPhone:
+               - Vào **Cài đặt > Cài đặt chung > Quản lý VPN & Thiết bị** > Bấm vào Apple ID của bạn > Chọn **Tin cậy (Trust)**.
+               - (Nếu iOS 16 trở lên): Vào **Cài đặt > Quyền riêng tư & Bảo mật > Chế độ nhà phát triển (Developer Mode)** > Bật lên và khởi động lại máy.
+            7. Mở app **Rotate Rings** và trải nghiệm!
+          files: rotate-rings.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
